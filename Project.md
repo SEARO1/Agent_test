@@ -672,3 +672,52 @@ ormalizePayload\.
   cleaner module graph.
 - Behavior is unchanged \u2014 same adjacency, same colors, same node
   structure, same first-intent detection.
+
+### 2026-06-04 ¡P Agent_test: extract split-hub logic to parseKBSplit.ts
+**Status:** Refactor
+**Files:** \src/components/parseKB.ts\, \src/components/parseKBSplit.ts\ (new)
+**Why:** Step 5 of \parseKBFormatActions\ (\"decide splits / push
+split nodes / resolve split edges\") was ~110 lines of inline logic
+with 3 concerns: deciding which intents to split, generating the
+split copy FlowNodes, and rewriting adjacency edges to use those
+copy IDs. The closure \let getSplitNodeId = ...\ pattern and the
+inline \	ype EdgeMeta = ...\ / \	ype SplitEdge = ...\ declarations
+made the function hard to follow.
+**What:**
+- New module \parseKBSplit.ts\ (200 lines) exposes:
+  - Shared types: \EdgeMeta\, \SplitEdge\, \SplitRole\.
+  - \getSplitNodeId(intentId, role, index)\ ¡X the stable-ID
+    helper, now exported so downstream modules can reconstruct
+    expected IDs.
+  - \decideSplitIntents(sortedUsedIntents, inboundCount,
+    outboundCount)\ ¡÷ \Set<string>\. Triggers on
+    \(inbound ?? 4 && outbound > 0)\ or the symmetric outbound
+    case.
+  - \uildSplitNodes(...)\ ¡÷ \FlowNode[]\. Non-split intents
+    produce one node; split intents produce \inboundTotal\ 'in'
+    copies + \outboundTotal\ 'out' copies. The first intent
+    gets the \u25b6 arrow prefix on its first copy.
+  - \esolveSplitEdges(adjacency, splitIntentIds)\ ¡÷
+    \SplitEdge[]\. Rewrites each canonical (source, target) pair
+    to (sourceId, targetId) where one or both ends may now be a
+    split copy. Carries both the resolved IDs and the canonical
+    base IDs forward for the mirror step.
+  - \countDegrees(adjacency)\ ¡÷ \{ inboundCount, outboundCount }\.
+    Convenience used by both \decideSplitIntents\ and the
+    mirror-DFS step.
+- \parseKBFormatActions\ is now a 4-step orchestrator for the
+  basic pipeline + 3-step orchestrator for the split pipeline
+  (countDegrees ¡÷ decideSplitIntents ¡÷ buildSplitNodes ¡÷
+  resolveSplitEdges). The remaining inline logic is just the
+  cycle detection + mirror generation (Phase 5).
+- \parseKB.ts\: 584 \u2192 499 lines (-85).
+**Notes / Mistakes:**
+- \SplitEdge\ is now imported rather than declared inline, so
+  downstream modules (mirror in Phase 5) can share the same shape
+  without re-declaring.
+- \countDegrees\ is a small enough helper that some would inline
+  it; making it named documents the intent ("we need both in- and
+  out-degrees to decide splits") and matches the rest of the
+  pure-helper pattern.
+- Behavior is unchanged \u2014 same split decision threshold (4), same
+  in/out-copy indexing, same first-intent \u25b6 propagation.

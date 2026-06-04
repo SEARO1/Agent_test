@@ -11,6 +11,14 @@ import {
   pickFirstIntentId,
   pickEdgeColor,
 } from './parseKBActions';
+import {
+  decideSplitIntents,
+  buildSplitNodes,
+  resolveSplitEdges,
+  countDegrees,
+  SplitEdge,
+  EdgeMeta,
+} from './parseKBSplit';
 import { NODE_WIDTH, NODE_HEIGHT, H_GAP, V_GAP } from './parseKBLayout';
 
 export interface FlowNode {
@@ -175,113 +183,20 @@ function parseKBFormatActions(kb: KBJson, nodes: FlowNode[], edges: FlowEdge[]):
   const sortedUsedIntents = intents.filter((intent) => usedIntentIds.has(intent.intentId));
   const firstIntentId = pickFirstIntentId(sortedUsedIntents);
 
-  const inboundCount = new Map<string, number>();
-  const outboundCount = new Map<string, number>();
-  for (const [source, targets] of adjacency) {
-    outboundCount.set(source, targets.size);
-    for (const target of targets.keys()) {
-      inboundCount.set(target, (inboundCount.get(target) ?? 0) + 1);
-    }
-  }
+  const { inboundCount, outboundCount } = countDegrees(adjacency);
+  const splitIntentIds = decideSplitIntents(sortedUsedIntents, inboundCount, outboundCount);
 
-  const splitIntentIds = new Set<string>();
-  for (const intent of sortedUsedIntents) {
-    const inbound = inboundCount.get(intent.intentId) ?? 0;
-    const outbound = outboundCount.get(intent.intentId) ?? 0;
-    const splitByInbound = inbound >= 4 && outbound > 0;
-    const splitByOutbound = outbound >= 4 && inbound > 0;
-    if (splitByInbound || splitByOutbound) splitIntentIds.add(intent.intentId);
-  }
-
-  const getSplitNodeId = (intentId: string, role: 'in' | 'out', index: number) => {
-    return `${intentId}__${role}__${index}`;
-  };
-
-  for (const intent of sortedUsedIntents) {
-    const isSplit = splitIntentIds.has(intent.intentId);
-    const isFirst = intent.intentId === firstIntentId;
-    const arrow = isFirst ? '▶ ' : '';
-
-    if (!isSplit) {
-      nodes.push({
-        id: intent.intentId,
-        position: { x: 0, y: 0 },
-        data: {
-          label: `${arrow}${intent.intentId}\n${intent.intentName}`,
-          rawData: intent,
-          isFirstIntent: isFirst,
-        },
-        type: 'default',
-      });
-      continue;
-    }
-
-    const inboundTotal = inboundCount.get(intent.intentId) ?? 0;
-    const outboundTotal = outboundCount.get(intent.intentId) ?? 0;
-
-    for (let index = 1; index <= inboundTotal; index += 1) {
-      const prefix = isFirst && index === 1 ? arrow : '';
-      nodes.push({
-        id: getSplitNodeId(intent.intentId, 'in', index),
-        position: { x: 0, y: 0 },
-        data: {
-          label: `${prefix}${intent.intentId}\n${intent.intentName} (in ${index})`,
-          rawData: intent,
-          isFirstIntent: isFirst && index === 1,
-          splitRole: 'in',
-          splitPairId: intent.intentId,
-        },
-        type: 'default',
-      });
-    }
-
-    for (let index = 1; index <= outboundTotal; index += 1) {
-      nodes.push({
-        id: getSplitNodeId(intent.intentId, 'out', index),
-        position: { x: 0, y: 0 },
-        data: {
-          label: `${intent.intentId}\n${intent.intentName} (out ${index})`,
-          rawData: intent,
-          splitRole: 'out',
-          splitPairId: intent.intentId,
-        },
-        type: 'default',
-      });
-    }
-  }
+  const builtSplitNodes = buildSplitNodes(
+    sortedUsedIntents,
+    splitIntentIds,
+    inboundCount,
+    outboundCount,
+    firstIntentId,
+  );
+  for (const n of builtSplitNodes) nodes.push(n);
 
   // ── Step 5: resolve canonical edges into split-node edges ──────────────────
-  type EdgeMeta = { labels: Set<string>; methods: Set<string>; order: number };
-  type SplitEdge = {
-    sourceId: string;   // final node ID after split assignment
-    targetId: string;   // final node ID after split assignment
-    sourceBase: string; // canonical intent ID (pre-split)
-    targetBase: string; // canonical intent ID (pre-split)
-    meta: EdgeMeta;
-  };
-
-  const outboundIndexBySource = new Map<string, number>();
-  const inboundIndexByTarget  = new Map<string, number>();
-  const splitResolvedEdges: SplitEdge[] = [];
-
-  for (const [source, targets] of adjacency) {
-    const sortedTargets = [...targets.entries()].sort((a, b) => a[1].order - b[1].order);
-    for (const [target, meta] of sortedTargets) {
-      let sourceId = source;
-      if (splitIntentIds.has(source)) {
-        const idx = (outboundIndexBySource.get(source) ?? 0) + 1;
-        outboundIndexBySource.set(source, idx);
-        sourceId = getSplitNodeId(source, 'out', idx);
-      }
-      let targetId = target;
-      if (splitIntentIds.has(target)) {
-        const idx = (inboundIndexByTarget.get(target) ?? 0) + 1;
-        inboundIndexByTarget.set(target, idx);
-        targetId = getSplitNodeId(target, 'in', idx);
-      }
-      splitResolvedEdges.push({ sourceId, targetId, sourceBase: source, targetBase: target, meta });
-    }
-  }
+  const splitResolvedEdges: SplitEdge[] = resolveSplitEdges(adjacency, splitIntentIds);
 
   // ── Step 6: DFS cycle detection on the split-resolved edge graph ────────────
   // Ancestor tracking uses canonical base IDs so that A__in__1 and A__out__2
