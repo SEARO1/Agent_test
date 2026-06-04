@@ -569,3 +569,38 @@ odeStyling.ts\ exposes pure helpers:
   inline implementation, including the (now redundant) \eturn {
   ...node, style: baseStyle }\ branch which is now absorbed into
   the no-override path.
+
+### 2026-06-04 ¡P Agent_test: extract ELK layout to elkLayout.ts
+**Status:** Refactor
+**Files:** \src/components/Canvas.tsx\, \src/components/elkLayout.ts\ (new)
+**Why:** The inline \getLayoutedElements\ function in \Canvas.tsx\
+mixed three concerns: (1) building the ELK input graph (options +
+node/edge shapes), (2) running the layout, and (3) mapping layout
+positions back onto the original nodes. Plus an inline \ELK\ import
++ module-level \
+ew ELK()\ instance that the rest of the component
+didn't need.
+**What:**
+- New module \elkLayout.ts\ exposes:
+  - \ELK_NODE_WIDTH\, \ELK_NODE_HEIGHT\ ¡X extracted default sizes.
+  - \LayoutDirection\ type \('TB' | 'LR')\.
+  - \uildElkGraph(nodes, edges, dir)\ ¡X pure: builds the ELK input
+    shape, no side-effects.
+  - \pplyElkLayout(graph)\ ¡X runs ELK, returns the output graph.
+  - \getLayoutedElements(nodes, edges, dir)\ ¡X orchestrator that
+    composes the above two + maps positions back to the original
+    nodes + handles the \	ry/catch\ fallback.
+- \Canvas.tsx\ lost ~45 lines of layout plumbing. The \ELK\
+  import and the module-level \
+ew ELK()\ are now contained in
+  \elkLayout.ts\.
+- The \useEffect\ in \CanvasInner\ now reads:
+  \const { nodes: layoutedNodes, edges: layoutedEdges } = await
+  getLayoutedElements(initialNodes, initialEdges, 'TB');\
+**Notes / Mistakes:**
+- ELK's TypeScript types are awkward; I cast the input to
+  \Parameters<typeof elk.layout>[0]\ once at the boundary so the
+  internal helpers stay typed against the simpler local
+  \ElkInputGraph\ / \ElkOutputGraph\ shapes.
+- Behavior is unchanged \u2014 same \layoutOptions\, same direction
+  logic, same fallback to original positions on error.

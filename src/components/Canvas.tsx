@@ -13,7 +13,6 @@ import {
   ReactFlowProvider,
   useReactFlow,
 } from '@xyflow/react';
-import ELK from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/style.css';
 
 import { FlowNode, FlowEdge } from './parseKB';
@@ -23,6 +22,7 @@ import {
   getMiniMapNodeColor,
   MiniMapColorContext,
 } from './nodeStyling';
+import { getLayoutedElements } from './elkLayout';
 
 interface CanvasProps {
   initialNodes: FlowNode[];
@@ -30,46 +30,6 @@ interface CanvasProps {
   searchResults?: FlowNode[];
   currentResultIndex?: number;
 }
-
-const elk = new ELK();
-
-const getLayoutedElements = async (nodes: FlowNode[], edges: FlowEdge[], dir = 'TB') => {
-  const isHorizontal = dir === 'LR';
-
-  const graph = {
-    id: 'root',
-    layoutOptions: {
-      'elk.algorithm': 'layered',
-      'elk.direction': isHorizontal ? 'RIGHT' : 'DOWN',
-      'elk.spacing.nodeNode': '100',
-      'elk.layered.spacing.nodeNodeBetweenLayers': '150',
-      'elk.edgeRouting': 'POLYLINE',
-      'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
-    },
-    children: nodes.map((n) => ({ ...n, width: 250, height: 80 })),
-    edges: edges.map((e) => ({ ...e, id: e.id, sources: [e.source], targets: [e.target] })),
-  };
-
-  try {
-    const layoutedGraph = await elk.layout(graph);
-
-    const layoutedNodes = nodes.map((node) => {
-      const layoutNode = layoutedGraph.children?.find((n) => n.id === node.id);
-      return {
-        ...node,
-        position: {
-          x: layoutNode?.x || 0,
-          y: layoutNode?.y || 0,
-        },
-      };
-    });
-
-    return { nodes: layoutedNodes, edges };
-  } catch (error) {
-    console.error("ELK Layout Error:", error);
-    return { nodes, edges };
-  }
-};
 
 function CanvasInner({ initialNodes, initialEdges, searchResults = [], currentResultIndex = 0 }: CanvasProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
