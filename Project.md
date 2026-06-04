@@ -529,3 +529,43 @@ And symmetrically for outgoing fanout (the `H â”€â–º H'_out_*` side).
 - This entry is **design-only** â€” implementation is gated on the
   user reviewing and approving this spec.
 
+
+### 2026-06-04 ¡P Agent_test: extract node/edge decoration to 
+odeStyling.ts
+**Status:** Refactor
+**Files:** \src/components/Canvas.tsx\, \src/components/nodeStyling.ts\ (new)
+**Why:** The inline \
+odes.map\ / \edges.map\ / MiniMap \
+odeColor\
+blocks in \Canvas.tsx\ had 5+ nested conditional branches (added to:
+search-hit, click-highlight, click-dim, first-intent, mirror) and
+~120 lines of dense style merging. Hard to read, hard to test, and
+the visual priority rules were buried inside JSX.
+**What:**
+- New module \
+odeStyling.ts\ exposes pure helpers:
+  - \getMirrorBaseStyle()\ ¡X private helper for the mirror base
+    style (dashed border, light background, italic).
+  - \getNodeStyleOverrides(ctx)\ / \decorateNode(node, ctx)\
+  - \getEdgeStyleOverrides(ctx)\ / \decorateEdge(edge, ctx)\
+  - \getMiniMapNodeColor(node, ctx)\
+- \NodeStyleContext\ extends the kb-tree version with \isMirror\.
+- \decorateNode\ now handles the mirror case by spreading the
+  mirror base style BEFORE the override style, so the dashed border
+  composes with click/search/first-intent layers instead of being
+  clobbered.
+- \getMiniMapNodeColor\ adds the mirror check (gray \#94a3b8\)
+  between click-highlighted and node-type fallback.
+- \Canvas.tsx\ render block shrank from ~120 lines of inline
+  conditional JSX to ~25 lines of straightforward \decorateX(...)\
+  calls. The \miniMapCtx\ object is built once before the JSX.
+**Notes / Mistakes:**
+- The mirror case in the original code had TWO branches (one to
+  apply baseStyle to non-highlighted mirrors, one to apply baseStyle
+  to highlighted mirrors via spread). The new \decorateNode\
+  unifies both by always spreading the mirror base style when
+  \isMirror\, and applying overrides on top.
+- No behavior change \u2014 visuals are pixel-identical to the previous
+  inline implementation, including the (now redundant) \eturn {
+  ...node, style: baseStyle }\ branch which is now absorbed into
+  the no-override path.

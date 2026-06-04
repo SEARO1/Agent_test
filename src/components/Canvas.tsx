@@ -17,6 +17,12 @@ import ELK from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/style.css';
 
 import { FlowNode, FlowEdge } from './parseKB';
+import {
+  decorateNode,
+  decorateEdge,
+  getMiniMapNodeColor,
+  MiniMapColorContext,
+} from './nodeStyling';
 
 interface CanvasProps {
   initialNodes: FlowNode[];
@@ -159,107 +165,28 @@ function CanvasInner({ initialNodes, initialEdges, searchResults = [], currentRe
     [setCenter],
   );
 
+  const miniMapCtx: MiniMapColorContext = {
+    firstIntentNodeId,
+    currentSearchNodeId: currentSearchNode?.id ?? null,
+    clickActive,
+    clickHighlightedNodeIds: clickHighlightedNodeIds ?? new Set<string>(),
+    highlightedNodeIds,
+  };
+
   return (
     <div style={{ width: '100%', height: '100%' }}>
       <ReactFlow
-         nodes={nodes.map(node => {
-             const isSearchHit = highlightedNodeIds.has(node.id);
-             const isClickHighlighted = clickActive && clickHighlightedNodeIds!.has(node.id);
-             const isFirstIntent = node.id === firstIntentNodeId;
-             const isMirror = Boolean((node.data as { isMirror?: boolean } | undefined)?.isMirror);
-             const baseStyle = {
-               ...((node.style ?? {}) as React.CSSProperties),
-               ...(isMirror ? {
-                 background: '#f8fafc',
-                 border: '2px dashed #94a3b8',
-                 borderRadius: '4px',
-                 fontStyle: 'italic',
-               } : {}),
-             } as React.CSSProperties;
-
-            if (isClickHighlighted) {
-              // Edge-selection active and this node is an endpoint → cyan highlight.
-              return {
-                ...node,
-                style: {
-                  ...baseStyle,
-                  background: '#cffafe',
-                  border: isSearchHit ? '2px solid #0e7490' : '2px solid #06b6d4',
-                  borderRadius: '4px',
-                  boxShadow: '0 0 0 4px rgba(6, 182, 212, 0.25)',
-                  zIndex: 10,
-                },
-              };
-            }
-
-            if (clickActive) {
-              // Edge-selection active but this node is NOT part of the selection
-              // — make it transparent (keep visible as a ghost).
-              return {
-                ...node,
-                style: { ...baseStyle, opacity: 0.15 },
-              };
-            }
-
-            if (isSearchHit) {
-              return {
-                ...node,
-                style: {
-                  ...baseStyle,
-                  background: '#fef08a',
-                  border: '2px solid #eab308',
-                  borderRadius: '4px',
-                  zIndex: 10,
-                },
-              };
-            }
-
-            if (isFirstIntent) {
-              // First-intent (entry-point) treatment: gold background, amber
-              // border, soft glow, and the ▶ arrow prefix in the label.
-              return {
-                ...node,
-                style: {
-                  ...baseStyle,
-                  background: '#fef3c7',
-                  border: '2px solid #f59e0b',
-                  borderRadius: '4px',
-                  boxShadow: '0 0 0 4px rgba(245, 158, 11, 0.25)',
-                  zIndex: 10,
-                },
-              };
-            }
-
-            // Mirror node: dashed border, light background, italic text
-            if (isMirror) {
-              return { ...node, style: baseStyle };
-            }
-
-            return node;
-          })}
-        edges={edges.map(edge => {
-            if (!clickActive) return edge;
-
-            const isClickHighlighted = clickHighlightedEdgeIds!.has(edge.id);
-            const baseStyle = (edge.style ?? {}) as React.CSSProperties;
-
-            if (isClickHighlighted) {
-              // Keep original method color, bump width, no animation.
-              return {
-                ...edge,
-                style: { ...baseStyle, strokeWidth: 3, opacity: 1 },
-                zIndex: 5,
-                animated: false,
-              } as Edge;
-            }
-
-            // Selection active but this edge is NOT the selected one —
-            // make it transparent.
-            return {
-              ...edge,
-              style: { ...baseStyle, opacity: 0.1 },
-            } as Edge;
-          })}
+        nodes={nodes.map((node) => decorateNode(node, {
+            isSearchHit: highlightedNodeIds.has(node.id),
+            isClickHighlighted: clickActive && (clickHighlightedNodeIds?.has(node.id) ?? false),
+            isFirstIntent: node.id === firstIntentNodeId,
+            isMirror: Boolean((node.data as { isMirror?: boolean } | undefined)?.isMirror),
+            clickActive,
+          }))}
+        edges={edges.map((edge) => decorateEdge(edge, {
+            clickActive,
+            isClickHighlighted: clickHighlightedEdgeIds?.has(edge.id) ?? false,
+          }))}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
@@ -276,17 +203,7 @@ function CanvasInner({ initialNodes, initialEdges, searchResults = [], currentRe
           pannable
           zoomable
           onClick={handleMiniMapClick}
-          nodeColor={(node) => {
-             if (node.id === firstIntentNodeId) return '#f59e0b';
-             if (node.id === currentSearchNode?.id) return '#eab308';
-             if (clickActive && clickHighlightedNodeIds!.has(node.id)) return '#06b6d4';
-             if ((node.data as { isMirror?: boolean } | undefined)?.isMirror) return '#94a3b8';
-             switch (node.type) {
-               case 'input': return '#61dafb';
-               case 'output': return '#ff6b6b';
-               default: return highlightedNodeIds.has(node.id) ? '#fef08a' : '#c8e6c9';
-             }
-           }}
+          nodeColor={(node) => getMiniMapNodeColor(node, miniMapCtx)}
           nodeStrokeWidth={2}
           maskColor="rgba(0, 0, 0, 0.1)"
           style={{ background: '#f5f5f5' }}
