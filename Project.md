@@ -814,3 +814,24 @@ avigateResults(direction)\ (with wrap-around)
   branch. This refactor is a pure cleanup \u2014 no new features.
 - Behavior is unchanged \u2014 same trim-lowercase-substring matching,
   same wrap-around navigation, same keyboard shortcuts.
+
+### 2026-06-04 ¡P Agent_test: build verification + dead imports cleanup
+**Status:** Bugfix
+**Files:** \src/components/parseKB.ts\
+**Why:** The unused-import warnings from \@typescript-eslint\
+(\uildFlowNodes\, \uildFlowEdges\, \EdgeMeta\, \getSplitNodeId\)
+tripped the CI=strict lint check and stopped the build.
+**What:**
+- Removed \uildFlowNodes\, \uildFlowEdges\ from the
+  \parseKBActions\ import (the action-based orchestrator doesn't
+  use them \u2014 the split-node pipeline builds nodes via
+  \uildSplitNodes\).
+- Removed \EdgeMeta\ and \getSplitNodeId\ from the
+  \parseKBSplit\ import (\EdgeMeta\ is now nested in
+  \SplitEdge\'s \meta\ field, \getSplitNodeId\ is used
+  internally by \uildSplitNodes\).
+- Build now passes.
+**Notes / Mistakes:**
+- The pre-existing warnings about \NODE_WIDTH\ constants living in
+  both files were already resolved in Phase 3; this is just the
+  leftover import-cleanup half of the same issue.
