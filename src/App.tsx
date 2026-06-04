@@ -1,80 +1,31 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState } from 'react';
 import JsonUploader from './components/JsonUploader';
 import Canvas from './components/Canvas';
 import { parseKBToGraph, checkAllIntentsAdded, IntentCheckResult, FlowNode, FlowEdge } from './components/parseKB';
+import { useSearch } from './useSearch';
 import './App.css';
 
 function App() {
   const [nodes, setNodes] = useState<FlowNode[]>([]);
   const [edges, setEdges] = useState<FlowEdge[]>([]);
   const [showUploader, setShowUploader] = useState(false);
-  const [rawJson, setRawJson] = useState<any>(null);
   const [checkResult, setCheckResult] = useState<IntentCheckResult | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<FlowNode[]>([]);
-  const [currentResultIndex, setCurrentResultIndex] = useState(0);
+
+  const search = useSearch(nodes);
 
   const handleJsonLoaded = (data: any) => {
     try {
       const { nodes: newNodes, edges: newEdges } = parseKBToGraph(data);
       setNodes(newNodes);
       setEdges(newEdges);
-      setRawJson(data);
       const result = checkAllIntentsAdded(data, newNodes);
       setCheckResult(result);
       setShowUploader(false);
-      setSearchQuery('');
-      setSearchResults([]);
+      search.resetSearch();
     } catch (error) {
       console.error(error);
       alert("Invalid JSON format");
     }
-  };
-
-  const handleSearch = useCallback(() => {
-    if (!searchQuery.trim()) {
-      setSearchResults([]);
-      return;
-    }
-
-    const query = searchQuery.toLowerCase();
-    const results = nodes.filter((node) => {
-      const label = node.data.label?.toLowerCase() || '';
-      const id = node.id?.toLowerCase() || '';
-      return id.includes(query) || label.includes(query);
-    });
-
-    setSearchResults(results);
-    setCurrentResultIndex(0);
-  }, [searchQuery, nodes]);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSearch();
-    } else if (e.key === 'F3' || (e.key === 'f' && e.ctrlKey)) {
-      e.preventDefault();
-      navigateResults('next');
-    }
-  };
-
-  const navigateResults = (direction: 'next' | 'prev') => {
-    if (searchResults.length === 0) return;
-
-    if (direction === 'next') {
-      setCurrentResultIndex((prev) =>
-        prev < searchResults.length - 1 ? prev + 1 : 0
-      );
-    } else {
-      setCurrentResultIndex((prev) =>
-        prev > 0 ? prev - 1 : searchResults.length - 1
-      );
-    }
-  };
-
-  const clearSearch = () => {
-    setSearchQuery('');
-    setSearchResults([]);
-    setCurrentResultIndex(0);
   };
 
   return (
@@ -121,22 +72,22 @@ function App() {
             type="text"
             className="search-input"
             placeholder="Search by intent name or ID..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
+            value={search.searchQuery}
+            onChange={(e) => search.setSearchQuery(e.target.value)}
+            onKeyDown={search.handleKeyDown}
           />
-          <button className="search-btn" onClick={handleSearch}>Search</button>
-          {searchResults.length > 0 && (
+          <button className="search-btn" onClick={search.handleSearch}>Search</button>
+          {search.searchResults.length > 0 && (
             <div className="search-results-nav">
-              <button className="nav-btn" onClick={() => navigateResults('prev')}>▲</button>
+              <button className="nav-btn" onClick={() => search.navigateResults('prev')}>▲</button>
               <span className="result-counter">
-                {currentResultIndex + 1} / {searchResults.length}
+                {search.currentResultIndex + 1} / {search.searchResults.length}
               </span>
-              <button className="nav-btn" onClick={() => navigateResults('next')}>▼</button>
+              <button className="nav-btn" onClick={() => search.navigateResults('next')}>▼</button>
             </div>
           )}
-          {searchQuery && (
-            <button className="clear-btn" onClick={clearSearch}>✕</button>
+          {search.searchQuery && (
+            <button className="clear-btn" onClick={search.clearSearch}>✕</button>
           )}
         </div>
       </div>
@@ -147,8 +98,8 @@ function App() {
             <Canvas
               initialNodes={nodes}
               initialEdges={edges}
-              searchResults={searchResults}
-              currentResultIndex={currentResultIndex}
+              searchResults={search.searchResults}
+              currentResultIndex={search.currentResultIndex}
             />
           </div>
         ) : (

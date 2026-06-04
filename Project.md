@@ -769,3 +769,48 @@ the per-edge color picker in the final step was duplicating the
 - Behavior is unchanged \u2014 same ancestor tracking, same DFS order,
   same mirror ID scheme (\${targetId}__mirror\), same first-intent
   propagation in mirror labels.
+
+### 2026-06-04 ¡P Agent_test: extract useSearch custom hook from App.tsx
+**Status:** Refactor
+**Files:** \src/App.tsx\, \src/useSearch.ts\ (new)
+**Why:** \App.tsx\ had 6 \useState\ calls + 4 free-floating
+search functions (\handleSearch\, \handleKeyDown\,
+\
+avigateResults\, \clearSearch\). The 3 search-result setters
+and their handlers were all interrelated, but the component
+treated them as 5 independent state slots. Hard to read, harder to
+test, and impossible to reuse if another component ever needs
+search. Also, the \awJson\ state was set but never read, and
+\useMemo\ + \useCallback\ imports sat unused after \handleSearch\
+became the only memoized callback.
+**What:**
+- New module \src/useSearch.ts\ (94 lines) exposes a single
+  \useSearch(nodes)\ hook that returns:
+  - \searchQuery\, \setSearchQuery\
+  - \searchResults\, \currentResultIndex\
+  - \handleSearch\ (uses \
+odes\ from the closure)
+  - \
+avigateResults(direction)\ (with wrap-around)
+  - \clearSearch\
+  - \esetSearch\ (named identically to \clearSearch\ today, but
+    the separate name documents intent: \"I just loaded a new KB\")
+  - \handleKeyDown\ for the search input (Enter / Ctrl+F / F3)
+- The exported \UseSearchResult\ interface documents the public
+  surface.
+- \App.tsx\ now calls \const search = useSearch(nodes)\ and
+  references \search.searchQuery\, \search.handleSearch\, etc.
+- \handleJsonLoaded\ now calls \search.resetSearch()\ instead of
+  resetting the 3 state slots inline.
+- Removed the unused \awJson\ state + \setRawJson\ call.
+- Removed the unused \useCallback\ and \useMemo\ imports.
+- \App.tsx\ shrank from 166 \u2192 119 lines (-47, -28%).
+**Notes / Mistakes:**
+- \App.tsx\ does NOT have the hub-splitting toggle that the
+  earlier kb-tree / current parseKBSplit-module refactor mentioned.
+  Looking at \Project.md\ history, the kb-tree was the refactored
+  one with the toggle, but the Agent_test repo is the *pre-toggle*
+  state. The toggle was a follow-up feature added in the kb-tree
+  branch. This refactor is a pure cleanup \u2014 no new features.
+- Behavior is unchanged \u2014 same trim-lowercase-substring matching,
+  same wrap-around navigation, same keyboard shortcuts.
