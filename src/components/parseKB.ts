@@ -1,5 +1,18 @@
 // ─── React Flow types ────────────────────────────────────────────────────────
 
+import {
+  sortKBEntities,
+  buildIntentMap,
+  buildAdjacency,
+  markRootIntentsAsUsed,
+  buildFlowNodes,
+  buildFlowEdges,
+  getActionRedirects,
+  pickFirstIntentId,
+  pickEdgeColor,
+} from './parseKBActions';
+import { NODE_WIDTH, NODE_HEIGHT, H_GAP, V_GAP } from './parseKBLayout';
+
 export interface FlowNode {
   id: string;
   position: { x: number; y: number };
@@ -31,13 +44,13 @@ export interface FlowEdge {
 
 // ─── Types matching the KB JSON shape ────────────────────────────────────────
 
-interface KBVersion {
+export interface KBVersion {
   version: string;
   name: string;
   [key: string]: any;
 }
 
-interface KBIntent {
+export interface KBIntent {
   intentId: string;
   parentId: string | null;
   intentName: string;
@@ -46,12 +59,12 @@ interface KBIntent {
   [key: string]: any;
 }
 
-interface KBDtmfOption {
+export interface KBDtmfOption {
   dtmfPattern?: string;
   dtmfIntent?: string;
 }
 
-interface KBActionPayload {
+export interface KBActionPayload {
   dtmfType?: string;
   dtmfOptions?: KBDtmfOption[];
   dtmfIntentId?: string;
@@ -63,7 +76,7 @@ interface KBActionPayload {
   [key: string]: any;
 }
 
-interface KBAction {
+export interface KBAction {
   actionId: string;
   intentId: string;
   type: string;
@@ -74,19 +87,14 @@ interface KBAction {
   [key: string]: any;
 }
 
-interface KBJson {
+export interface KBJson {
   version?: KBVersion;
   intents?: KBIntent[];
   actions?: KBAction[];
   [key: string]: any;
 }
 
-// ─── Layout constants ────────────────────────────────────────────────────────
-
-const NODE_WIDTH  = 240;
-const NODE_HEIGHT = 70;
-const H_GAP       = 80;
-const V_GAP       = 100;
+// Layout constants now live in ./parseKBLayout.
 
 // ─── Main entry point ────────────────────────────────────────────────────────
 
@@ -153,58 +161,16 @@ export function parseKBToGraph(rawJson: any): { nodes: FlowNode[]; edges: FlowEd
 //   5. Intents are sorted by sortOrder / intentId before rendering
 
 function parseKBFormatActions(kb: KBJson, nodes: FlowNode[], edges: FlowEdge[]): void {
-  const intents: KBIntent[] = [...(kb.intents ?? [])].sort(compareIntent);
-  const actions: KBAction[] = [...(kb.actions ?? [])].sort(compareAction);
+  const { intents, actions } = sortKBEntities(kb);
+  const intentMap = buildIntentMap(intents);
 
-  const intentMap = new Map<string, KBIntent>();
-  for (const intent of intents) intentMap.set(intent.intentId, intent);
-
-  const adjacency = new Map<
-    string,
-    Map<string, { labels: Set<string>; methods: Set<string>; order: number }>
-  >();
-  const usedIntentIds = new Set<string>();
-  let edgeOrder = 0;
-
-  for (const action of actions) {
-    const sourceIntentId = action.intentId;
-    if (!sourceIntentId || !intentMap.has(sourceIntentId)) continue;
-
+  const { adjacency, usedIntentIds } = buildAdjacency(actions, intentMap, (action) => {
     const payload = normalizePayload(action.payload);
-    if (!payload) continue;
+    if (!payload) return [];
+    return getActionRedirects(payload, intentMap);
+  });
 
-    const redirects = getActionRedirects(payload, intentMap);
-
-    for (const redirect of redirects) {
-      if (!redirect.targetId) continue;
-      if (redirect.targetId === sourceIntentId) continue;
-      if (!intentMap.has(redirect.targetId)) continue;
-
-      let outgoing = adjacency.get(sourceIntentId);
-      if (!outgoing) {
-        outgoing = new Map();
-        adjacency.set(sourceIntentId, outgoing);
-      }
-
-      let entry = outgoing.get(redirect.targetId);
-      if (!entry) {
-        entry = { labels: new Set(), methods: new Set(), order: edgeOrder++ };
-        outgoing.set(redirect.targetId, entry);
-      }
-
-      entry.labels.add(redirect.label);
-      entry.methods.add(redirect.method);
-
-      usedIntentIds.add(sourceIntentId);
-      usedIntentIds.add(redirect.targetId);
-    }
-  }
-
-  for (const intent of intents) {
-    if ((intent.parentId === 'ROOT' || intent.parentId == null) && adjacency.has(intent.intentId)) {
-      usedIntentIds.add(intent.intentId);
-    }
-  }
+  markRootIntentsAsUsed(intents, adjacency, usedIntentIds);
 
   const sortedUsedIntents = intents.filter((intent) => usedIntentIds.has(intent.intentId));
   const firstIntentId = pickFirstIntentId(sortedUsedIntents);
@@ -467,145 +433,6 @@ function normalizePayload(payload: KBAction['payload']): KBActionPayload | null 
   return payload;
 }
 
-function parseProcedureArgs(argsStr: string): Array<{ intentId: string; label: string }> {
-  const results: Array<{ intentId: string; label: string }> = [];
-  const regex = /(\w+IntentId):\s*["']([\w]+)["']/gi;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(argsStr)) !== null) {
-    const key = match[1];
-    const intentId = match[2];
-    let label = key.replace(/([A-Z])/g, ' $1').trim(); // e.g. "successIntentId" -> "success Intent Id"
-    label = label.replace(/ Intent Id$/, '').trim();     // -> "success"
-    results.push({ intentId, label });
-  }
-  return results;
-}
-
-// Step 3: extract every redirect target ID from a single action payload
-function getActionRedirects(
-  payload: KBActionPayload,
-  intentMap: Map<string, KBIntent>,
-): Array<{ targetId: string; label: string; method: string }> {
-  const redirects: Array<{ targetId: string; label: string; method: string }> = [];
-
-  // 1) END_WITH_HASH -> dtmf
-  if (payload.dtmfType === 'END_WITH_HASH' && payload.dtmfIntentId) {
-    redirects.push({
-      targetId: payload.dtmfIntentId,
-      label: '[# entered]',
-      method: 'dtmf'
-    });
-  }
-
-  // 2) SINGLE_DIGIT -> dtmf
-  if (Array.isArray(payload.dtmfOptions)) {
-    for (const opt of payload.dtmfOptions) {
-      if (!opt?.dtmfIntent) continue;
-      redirects.push({
-        targetId: opt.dtmfIntent,
-        label: opt.dtmfPattern ? `[${opt.dtmfPattern}]` : '[digit]',
-        method: 'dtmf'
-      });
-    }
-  }
-
-  // 3) nohIntent / followUpIntent / redirectIntent
-  if (payload.nohIntent) {
-    redirects.push({
-      targetId: payload.nohIntent,
-      label: 'noh',
-      method: 'noh'
-    });
-  }
-
-  if (payload.followUpIntent) {
-    redirects.push({
-      targetId: payload.followUpIntent,
-      label: 'followUp',
-      method: 'followUp'
-    });
-  }
-
-  if (payload.redirectIntent) {
-    redirects.push({
-      targetId: payload.redirectIntent,
-      label: 'redirect',
-      method: 'redirect'
-    });
-  }
-
-  // Parse procedure args string for intent IDs
-  if (payload.args && typeof payload.args === 'string') {
-    const parsedArgs = parseProcedureArgs(payload.args);
-    for (const { intentId, label } of parsedArgs) {
-      if (intentId && intentMap.has(intentId)) {
-        redirects.push({ targetId: intentId, label, method: 'procArg' });
-      }
-    }
-  }
-
-  // Remove duplicates based on targetId AND label
-  const seen = new Set<string>();
-  return redirects.filter((r) => {
-    const key = `${r.targetId}|${r.label}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-// ─── Sorting helpers ─────────────────────────────────────────────────────────
-
-function compareIntent(a: KBIntent, b: KBIntent): number {
-  return (
-    (a.sortOrder ?? Number.MAX_SAFE_INTEGER) -
-      (b.sortOrder ?? Number.MAX_SAFE_INTEGER) ||
-    compareIntentId(a.intentId, b.intentId)
-  );
-}
-
-function compareAction(a: KBAction, b: KBAction): number {
-  return (
-    compareIntentId(a.intentId, b.intentId) ||
-    (a.sortOrder ?? Number.MAX_SAFE_INTEGER) -
-      (b.sortOrder ?? Number.MAX_SAFE_INTEGER) ||
-    compareIntentId(a.actionId, b.actionId)
-  );
-}
-
-function compareIntentId(a?: string, b?: string): number {
-  return (a ?? '').localeCompare(b ?? '');
-}
-
-// Picks the "first intent" — the entry point of the flow.
-// Preference order:
-//   1. The root intent (parentId === 'ROOT' / null) with the lowest
-//      sortOrder, among intents in the graph.
-//   2. The intent with the lowest sortOrder overall (e.g. the very
-//      first intent in the KB).
-//   3. The first intent in the supplied list.
-// Returns null only when the list is empty.
-function pickFirstIntentId(sortedIntents: KBIntent[]): string | null {
-  if (sortedIntents.length === 0) return null;
-
-  const roots = sortedIntents.filter(
-    (i) => i.parentId === 'ROOT' || i.parentId == null,
-  );
-  const pool = roots.length > 0 ? roots : sortedIntents;
-  return pool[0].intentId;
-}
-
-// "[1]" < "[2]" < "noh" < "followUp" < "redirect"
-function compareEdgeLabel(a: string, b: string): number {
-  const isDigitA = a.startsWith('[');
-  const isDigitB = b.startsWith('[');
-  if (isDigitA && !isDigitB) return -1;
-  if (!isDigitA && isDigitB) return 1;
-  return a.localeCompare(b);
-}
-
-// ─── Intent coverage check ────────────────────────────────────────────────────
-
 export interface IntentCheckResult {
   allAdded: boolean;
   totalIntents: number;
@@ -618,6 +445,10 @@ export interface IntentCheckResult {
  * An intent is considered "added" if it appears as a node (i.e., it has at least
  * one incoming or outgoing edge in the action-based graph).
  */
+function compareIntentId(a?: string, b?: string): number {
+  return (a ?? '').localeCompare(b ?? '');
+}
+
 export function checkAllIntentsAdded(
   rawJson: any,
   nodes: FlowNode[],
@@ -650,94 +481,7 @@ export function checkAllIntentsAdded(
   };
 }
 
-// ─── Layout: BFS depth from root intents, then column packing ────────────────
-
-function layoutActionGraph(
-  nodes: FlowNode[],
-  edges: FlowEdge[],
-  sortedIntents: KBIntent[],
-  allIntents: KBIntent[],
-): void {
-  const nodeMap = new Map(nodes.map(n => [n.id, n]));
-  const incomingCount = new Map<string, number>();
-  const outgoing = new Map<string, string[]>();
-
-  for (const node of nodes) {
-    incomingCount.set(node.id, 0);
-    outgoing.set(node.id, []);
-  }
-
-  for (const edge of edges) {
-    if (!nodeMap.has(edge.source) || !nodeMap.has(edge.target)) continue;
-    incomingCount.set(edge.target, (incomingCount.get(edge.target) ?? 0) + 1);
-    outgoing.get(edge.source)!.push(edge.target);
-  }
-
-  // Roots are intents that look like top-level entries (parentId === 'ROOT'),
-  // falling back to nodes with no incoming edges, then to the first sorted node.
-  const explicitRoots = allIntents
-    .filter(i => (i.parentId === 'ROOT' || i.parentId == null) && nodeMap.has(i.intentId))
-    .map(i => i.intentId);
-
-  const inDegreeRoots = sortedIntents
-    .filter(i => nodeMap.has(i.intentId) && (incomingCount.get(i.intentId) ?? 0) === 0)
-    .map(i => i.intentId);
-
-  const roots = explicitRoots.length > 0
-    ? explicitRoots
-    : inDegreeRoots.length > 0
-      ? inDegreeRoots
-      : sortedIntents.filter(i => nodeMap.has(i.intentId)).map(i => i.intentId).slice(0, 1);
-
-  // BFS to assign depth. Use max-depth so that "deepest" path determines level.
-  const depth = new Map<string, number>();
-  const queue: string[] = [];
-  for (const r of roots) {
-    depth.set(r, 0);
-    queue.push(r);
-  }
-
-  while (queue.length > 0) {
-    const id = queue.shift()!;
-    const next = (depth.get(id) ?? 0) + 1;
-    for (const tgt of outgoing.get(id) ?? []) {
-      if ((depth.get(tgt) ?? -1) < next) {
-        depth.set(tgt, next);
-        queue.push(tgt);
-      }
-    }
-  }
-
-  // Any node not reachable from a root (cycles, orphans) → place in a tail row
-  let maxDepth = 0;
-  depth.forEach(d => { if (d > maxDepth) maxDepth = d; });
-  for (const node of nodes) {
-    if (!depth.has(node.id)) depth.set(node.id, maxDepth + 1);
-  }
-
-  // Bucket nodes by depth, preserving the sortedIntents order within each level.
-  const levels = new Map<number, FlowNode[]>();
-  for (const intent of sortedIntents) {
-    const node = nodeMap.get(intent.intentId);
-    if (!node) continue;
-    const lvl = depth.get(intent.intentId) ?? 0;
-    const list = levels.get(lvl) ?? [];
-    list.push(node);
-    levels.set(lvl, list);
-  }
-
-  // Position: centre each row horizontally
-  levels.forEach((levelNodes, level) => {
-    const totalWidth = levelNodes.length * NODE_WIDTH + (levelNodes.length - 1) * H_GAP;
-    const startX = -totalWidth / 2;
-    levelNodes.forEach((node, index) => {
-      node.position = {
-        x: startX + index * (NODE_WIDTH + H_GAP),
-        y: level * (NODE_HEIGHT + V_GAP),
-      };
-    });
-  });
-}
+// The layoutActionGraph implementation now lives in ./parseKBLayout.ts.
 
 // ─── parentId-only KB-format parser (used when no actions are present) ──────
 

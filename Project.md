@@ -604,3 +604,71 @@ ew ELK()\ are now contained in
   \ElkInputGraph\ / \ElkOutputGraph\ shapes.
 - Behavior is unchanged \u2014 same \layoutOptions\, same direction
   logic, same fallback to original positions on error.
+
+### 2026-06-04 ¡P Agent_test: split parseKBFormatActions + layoutActionGraph into pure helpers
+**Status:** Refactor
+**Files:** \src/components/parseKB.ts\, \src/components/parseKBActions.ts\ (new),
+\src/components/parseKBLayout.ts\ (new)
+**Why:** \parseKBFormatActions\ (303 lines) and \layoutActionGraph\
+(89 lines) were each a single function mixing 5+ concerns: sort
+comparators, intent map building, adjacency accumulation, redirect
+extraction, and edge styling. Hard to read, harder to test, and the
+local \let edgeOrder = 0\ closure variable was a code smell. Also
+4 pre-existing dead helpers (compareAction, compareEdgeLabel,
+parseProcedureArgs local copy, getActionRedirects local copy) were
+sitting unused after the kb-tree refactor pattern was already
+established.
+**What:**
+- New module \parseKBActions.ts\ (340 lines) exposes the building
+  blocks as pure functions:
+  - \sortKBEntities(kb)\ + private \compareIntent\ / \compareAction\
+    / \compareIntentId\ (action-based copy).
+  - \uildIntentMap(intents)\ ¡÷ \Map<string, KBIntent>\.
+  - \uildAdjacency(actions, intentMap, getRedirects)\ ¡÷ walks
+    actions, collapses redirects. Takes the redirect-extraction
+    callback so it stays decoupled from
+    \getActionRedirects\ / \
+ormalizePayload\.
+  - \markRootIntentsAsUsed(intents, adjacency, usedIntentIds)\.
+  - \pickEdgeColor(methods)\ ¡÷ method-priority color picker.
+  - \uildFlowNodes(sortedUsedIntents, firstIntentId)\ ¡÷ \FlowNode[]\.
+  - \uildFlowEdges(adjacency)\ ¡÷ \FlowEdge[]\.
+  - \getActionRedirects(payload, intentMap)\ + 6 \collect*\ helpers
+    + \dedupeRedirects\ (Phase 4 work from kb-tree, applied here).
+  - \pickFirstIntentId(sortedIntents)\ ¡÷ exported.
+- New module \parseKBLayout.ts\ (200 lines) extracts the
+  BFS-ordered grid layout:
+  - Layout constants (\NODE_WIDTH=240\, \NODE_HEIGHT=70\,
+    \H_GAP=80\, \V_GAP=100\ \u2014 Agent_test's values, different from
+    kb-tree's).
+  - \uildEdgeIndex(nodes, edges)\, \indRoots(...)\,
+    \fsDepths(roots, outgoing)\, \ssignOrphanDepths(...)\,
+    \ucketByDepth(...)\, \positionLevels(levels)\.
+  - \layoutActionGraph(...)\ re-exported as 8-line orchestrator.
+- \parseKBFormatActions\ is now a 4-step orchestrator for the basic
+  pipeline (sort ¡÷ map ¡÷ adjacency ¡÷ mark roots ¡÷ pick first), then
+  continues inline with the split/mirror logic (Phases 4-5).
+- \KBIntent\ / \KBAction\ / \KBJson\ / \KBActionPayload\ /
+  \KBDtmfOption\ / \KBVersion\ types promoted to \export interface\.
+- Removed the local constants block (\NODE_WIDTH=240\ etc. \u2014 these
+  would have caused a duplicate declaration error after the import
+  was added).
+- Removed the dead local \compareAction\, \compareEdgeLabel\,
+  \parseProcedureArgs\, \getActionRedirects\, \pickFirstIntentId\,
+  \compareIntent\ (all moved to \parseKBActions.ts\).
+- Kept a local \compareIntentId\ in \parseKB.ts\ for the DFS cycle
+  detection in steps 6/7 (avoids exposing the mirror internals to
+  the action-based module).
+- \parseKB.ts\: 840 \u2192 584 lines (-256, -30%).
+**Notes / Mistakes:**
+- \parseKBFormatActions\ is still ~260 lines because steps 5-9
+  (split-node generation, split-edge resolution, cycle detection,
+  mirror nodes, final edge emission) are all inline. Phases 4 and 5
+  will tackle \parseKBSplit.ts\ and \parseKBMirror.ts\.
+- The local \compareIntentId\ is intentionally duplicated rather
+  than imported from \parseKBActions.ts\ to keep the action-based
+  helpers runtime-independent of the mirror module (which itself
+  depends on \parseKBActions.ts\ for types). A small price for the
+  cleaner module graph.
+- Behavior is unchanged \u2014 same adjacency, same colors, same node
+  structure, same first-intent detection.
