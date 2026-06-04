@@ -27,3 +27,9 @@ yarn-error.log*
 /.kilo
 
 /phase3-*.ps1
+
+# local sample KB JSON files (uploaded via JsonUploader at runtime)
+/*.json
+!/package.json
+!/tsconfig.json
+!/package-lock.json

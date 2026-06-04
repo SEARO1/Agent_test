@@ -721,3 +721,51 @@ made the function hard to follow.
   pure-helper pattern.
 - Behavior is unchanged \u2014 same split decision threshold (4), same
   in/out-copy indexing, same first-intent \u25b6 propagation.
+
+### 2026-06-04 ¡P Agent_test: extract mirror/cycle detection to parseKBMirror.ts
+**Status:** Refactor
+**Files:** \src/components/parseKB.ts\, \src/components/parseKBMirror.ts\ (new)
+**Why:** Steps 6-9 of \parseKBFormatActions\ (DFS cycle detection,
+mirror map, mirror node generation, final edge emission) were ~140
+lines of inline logic with a deeply-nested DFS closure. The
+\getBaseIntentId\ regex helper was local, the DFS's ancestor map and
+visited map were shared mutable state in the function scope, and
+the per-edge color picker in the final step was duplicating the
+\pickEdgeColor\ helper already exported from \parseKBActions.ts\.
+**What:**
+- New module \parseKBMirror.ts\ (260 lines) exposes:
+  - \getBaseIntentId(nodeId)\ ¡X exported so downstream code
+    (e.g. \checkAllIntentsAdded\) can collapse split IDs.
+  - \uildSplitAdjacency(splitEdges)\ ¡X builds a
+    \sourceId \u2192 SplitEdge[]\ map for the DFS.
+  - \detectCycles(splitEdges, sortedUsedIntents, splitIntentIds,
+    compareIntentId)\ \u2192 \CycleReturnKeys\ (a
+    \Set<string>\ of \"<sourceId>\\0<targetId>"\).
+    The DFS closure is now internal to this function, with
+    ancestor counts keyed by canonical base IDs.
+  - \uildMirrorMap(cycleReturnKeys)\ \u2192
+    \Map<targetId, mirrorNodeId>\.
+  - \uildMirrorNodes(mirrorIdByTargetId, intentMap,
+    compareIntentId)\ \u2192 \FlowNode[]\ with \isMirror: true\,
+    \mirrorOf\, and \mirrorOfBase\ on the data.
+  - \uildFinalEdges(splitEdges, cycleReturnKeys,
+    mirrorIdByTargetId, pickEdgeColor)\ \u2192 \FlowEdge[]\.
+    Cycle-return edges have their target rewritten to the mirror
+    node; non-cycle edges pass through. The inline 5-way color
+    picker is gone, replaced by the imported \pickEdgeColor\.
+- \parseKBFormatActions\ is now a 9-step pure orchestrator (each
+  step is a single function call). The total function shrank from
+  ~260 lines to ~55 lines.
+- \parseKB.ts\: 499 \u2192 394 lines (-105, -12.5%).
+**Notes / Mistakes:**
+- \pickEdgeColor\ is passed in as a callback to \uildFinalEdges\
+  to keep the mirror module color-policy-agnostic. Alternative was
+  to import it directly from \parseKBActions.ts\, but the callback
+  pattern keeps the dep graph flat (\parseKBMirror\ doesn't need
+  to know about \parseKBActions\ at all \u2014 only about
+  \parseKBSplit\ for the \SplitEdge\ type).
+- \compareIntentId\ is also passed as a callback because it lives
+  in \parseKB.ts\ (avoids the runtime cycle).
+- Behavior is unchanged \u2014 same ancestor tracking, same DFS order,
+  same mirror ID scheme (\${targetId}__mirror\), same first-intent
+  propagation in mirror labels.

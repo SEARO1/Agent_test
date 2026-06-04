@@ -18,7 +18,14 @@ import {
   countDegrees,
   SplitEdge,
   EdgeMeta,
+  getSplitNodeId,
 } from './parseKBSplit';
+import {
+  detectCycles,
+  buildMirrorMap,
+  buildMirrorNodes,
+  buildFinalEdges,
+} from './parseKBMirror';
 import { NODE_WIDTH, NODE_HEIGHT, H_GAP, V_GAP } from './parseKBLayout';
 
 export interface FlowNode {
@@ -202,137 +209,25 @@ function parseKBFormatActions(kb: KBJson, nodes: FlowNode[], edges: FlowEdge[]):
   // Ancestor tracking uses canonical base IDs so that A__in__1 and A__out__2
   // are both considered "A" in the path, which triggers a cycle when any form
   // of A appears as a descendant's outbound target.
-
-  const getBaseIntentId = (nodeId: string): string => {
-    const m = nodeId.match(/^(.*)__(in|out)__\d+$/);
-    return m ? m[1] : nodeId;
-  };
-
-  const splitAdj = new Map<string, SplitEdge[]>();
-  const incomingCountSplit = new Map<string, number>();
-  for (const e of splitResolvedEdges) {
-    if (!splitAdj.has(e.sourceId)) splitAdj.set(e.sourceId, []);
-    splitAdj.get(e.sourceId)!.push(e);
-    incomingCountSplit.set(e.targetId, (incomingCountSplit.get(e.targetId) ?? 0) + 1);
-  }
-
-  const cycleReturnKeys = new Set<string>(); // "sourceId\0targetId"
-  const visited = new Map<string, 'gray' | 'black'>();
-  const ancestorBaseCounts = new Map<string, number>();
-
-  const dfs = (nodeId: string): void => {
-    visited.set(nodeId, 'gray');
-    const base = getBaseIntentId(nodeId);
-    ancestorBaseCounts.set(base, (ancestorBaseCounts.get(base) ?? 0) + 1);
-
-    const outgoing = splitAdj.get(nodeId) ?? [];
-    // process in edge-insertion order for determinism
-    outgoing.sort((a, b) => a.meta.order - b.meta.order);
-    for (const edge of outgoing) {
-      if ((ancestorBaseCounts.get(edge.targetBase) ?? 0) > 0) {
-        // targetBase is currently in the ancestor path → cycle return
-        cycleReturnKeys.add(`${edge.sourceId}\0${edge.targetId}`);
-        continue;
-      }
-      if (visited.get(edge.targetId) !== 'black') {
-        dfs(edge.targetId);
-      }
-    }
-
-    const remaining = (ancestorBaseCounts.get(base) ?? 1) - 1;
-    if (remaining <= 0) ancestorBaseCounts.delete(base);
-    else ancestorBaseCounts.set(base, remaining);
-    visited.set(nodeId, 'black');
-  };
-
-  // Collect all split-graph node IDs
-  const allSplitNodeIds = new Set<string>();
-  for (const e of splitResolvedEdges) {
-    allSplitNodeIds.add(e.sourceId);
-    allSplitNodeIds.add(e.targetId);
-  }
-
-  // Start from explicit root intents first (prefer ROOT/null parentId), then sweep remaining
-  const explicitRootIds = sortedUsedIntents
-    .filter((i) => i.parentId === 'ROOT' || i.parentId == null)
-    .map((i) => (splitIntentIds.has(i.intentId) ? getSplitNodeId(i.intentId, 'out', 1) : i.intentId))
-    .filter((id) => allSplitNodeIds.has(id));
-
-  const traversalOrder = [...allSplitNodeIds].sort(compareIntentId);
-  const traversalStarts = [...new Set([...explicitRootIds, ...traversalOrder])];
-
-  for (const startId of traversalStarts) {
-    if (visited.get(startId) !== 'black') dfs(startId);
-  }
+  const cycleReturnKeys = detectCycles(
+    splitResolvedEdges,
+    sortedUsedIntents,
+    splitIntentIds,
+    compareIntentId,
+  );
 
   // ── Step 7: build mirror map keyed by exact split targetId ─────────────────
   // Mirror ID = `${exactTargetId}__mirror` — one per unique return target.
-  const mirrorIdByTargetId = new Map<string, string>(); // exact targetId → mirrorNodeId
-  for (const key of cycleReturnKeys) {
-    const targetId = key.split('\0')[1];
-    if (!mirrorIdByTargetId.has(targetId)) {
-      mirrorIdByTargetId.set(targetId, `${targetId}__mirror`);
-    }
-  }
+  const mirrorIdByTargetId = buildMirrorMap(cycleReturnKeys);
 
   // ── Step 8: push mirror nodes ───────────────────────────────────────────────
-  for (const [targetId, mirrorNodeId] of [...mirrorIdByTargetId.entries()].sort((a, b) => compareIntentId(a[0], b[0]))) {
-    const splitMatch = targetId.match(/^(.*)__(in|out)__(\d+)$/);
-    const mirrorOfBase = splitMatch ? splitMatch[1] : targetId;
-    const role = splitMatch ? (splitMatch[2] as 'in' | 'out') : null;
-    const index = splitMatch ? Number(splitMatch[3]) : null;
-
-    const intent = intentMap.get(mirrorOfBase);
-    let label: string;
-    if (role !== null && index !== null) {
-      // e.g. "A' (in 2)\n<intentName>"
-      label = intent
-        ? `${mirrorOfBase}' (${role} ${index})\n${intent.intentName}`
-        : `${mirrorOfBase}' (${role} ${index})`;
-    } else {
-      // non-split ancestor, e.g. "A'\n<intentName>"
-      label = intent ? `${mirrorOfBase}'\n${intent.intentName}` : `${mirrorOfBase}'`;
-    }
-
-    nodes.push({
-      id: mirrorNodeId,
-      position: { x: 0, y: 0 },
-      data: {
-        label,
-        rawData: intent,
-        isMirror: true,
-        mirrorOf: targetId,       // exact split node ID (e.g. "A__in__2" or "A")
-        mirrorOfBase,             // canonical intent ID (e.g. "A") — for coverage checks
-      },
-      type: 'default',
-    });
+  for (const n of buildMirrorNodes(mirrorIdByTargetId, intentMap, compareIntentId)) {
+    nodes.push(n);
   }
 
   // ── Step 9: emit final FlowEdges ────────────────────────────────────────────
-  for (const edge of splitResolvedEdges) {
-    const isCycleReturn = cycleReturnKeys.has(`${edge.sourceId}\0${edge.targetId}`);
-    const finalTarget = isCycleReturn
-      ? (mirrorIdByTargetId.get(edge.targetId) ?? `${edge.targetId}__mirror`)
-      : edge.targetId;
-
-    let strokeColor = '#b1b1b7';
-    if (edge.meta.methods.has('dtmf'))      strokeColor = '#10b981';
-    else if (edge.meta.methods.has('noh'))       strokeColor = '#f43f5e';
-    else if (edge.meta.methods.has('followUp'))  strokeColor = '#f59e0b';
-    else if (edge.meta.methods.has('redirect'))  strokeColor = '#3b82f6';
-    else if (edge.meta.methods.has('procArg'))   strokeColor = '#8b5cf6';
-
-    edges.push({
-      id: `${edge.sourceId}-${finalTarget}`,
-      source: edge.sourceId,
-      target: finalTarget,
-      type: 'straight',
-      animated: false,
-      label: [...edge.meta.labels].join(', '),
-      style: { stroke: strokeColor, strokeWidth: 2 },
-      labelBgStyle: { fill: '#ffffff', color: '#fff', fillOpacity: 0.8 },
-      labelStyle: { fill: strokeColor, fontWeight: 700 },
-    });
+  for (const e of buildFinalEdges(splitResolvedEdges, cycleReturnKeys, mirrorIdByTargetId, pickEdgeColor)) {
+    edges.push(e);
   }
 }
 
