@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import JsonUploader from './components/JsonUploader';
-import Canvas from './components/Canvas';
+import ForceGraph3DView from './components/ForceGraph3DView';
 import { parseKBToGraph, checkAllIntentsAdded, IntentCheckResult, FlowNode, FlowEdge } from './components/parseKB';
 import './App.css';
 
@@ -144,7 +144,7 @@ function App() {
       <div className="main-content">
         {nodes.length > 0 ? (
           <div className="canvas-container">
-            <Canvas
+            <ForceGraph3DView
               initialNodes={nodes}
               initialEdges={edges}
               searchResults={searchResults}
