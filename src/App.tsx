@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import JsonUploader from './components/JsonUploader';
 import ForceGraph3DView from './components/ForceGraph3DView';
+import LegendPanel from './components/LegendPanel';
 import { parseKBToGraph, checkAllIntentsAdded, IntentCheckResult, FlowNode, FlowEdge } from './components/parseKB';
 import './App.css';
 
@@ -150,6 +151,7 @@ function App() {
               searchResults={searchResults}
               currentResultIndex={currentResultIndex}
             />
+            <LegendPanel />
           </div>
         ) : (
           <div className="empty-state">

@@ -1,0 +1,71 @@
+{
+  "version": {
+    "version": "1.2.3",
+    "name": "Customer Support KB"
+  },
+  "intents": [
+    { "intentId": "root", "parentId": null, "intentName": "Main Menu", "sortOrder": 0 },
+    { "intentId": "billing", "parentId": "ROOT", "intentName": "Billing Enquiries", "sortOrder": 1 },
+    { "intentId": "tech", "parentId": "ROOT", "intentName": "Technical Support", "sortOrder": 2 },
+    { "intentId": "account", "parentId": "ROOT", "intentName": "Account Management", "sortOrder": 3 },
+    { "intentId": "invoice", "parentId": "billing", "intentName": "Invoice Questions", "sortOrder": 10 },
+    { "intentId": "payment", "parentId": "billing", "intentName": "Payment Issues", "sortOrder": 11 },
+    { "intentId": "refund", "parentId": "billing", "intentName": "Refund Requests", "sortOrder": 12 },
+    { "intentId": "overcharge", "parentId": "billing", "intentName": "Overcharge Dispute", "sortOrder": 13 },
+    { "intentId": "lateFee", "parentId": "billing", "intentName": "Late Fee Waiver", "sortOrder": 14 },
+    { "intentId": "password", "parentId": "account", "intentName": "Password Reset", "sortOrder": 20 },
+    { "intentId": "profile", "parentId": "account", "intentName": "Profile Update", "sortOrder": 21 },
+    { "intentId": "security", "parentId": "account", "intentName": "Security Settings", "sortOrder": 22 },
+    { "intentId": "closeAccount", "parentId": "account", "intentName": "Account Closure", "sortOrder": 23 },
+    { "intentId": "connectivity", "parentId": "tech", "intentName": "Connectivity Issues", "sortOrder": 30 },
+    { "intentId": "software", "parentId": "tech", "intentName": "Software Help", "sortOrder": 31 },
+    { "intentId": "hardware", "parentId": "tech", "intentName": "Hardware Support", "sortOrder": 32 },
+    { "intentId": "wifi", "parentId": "connectivity", "intentName": "Wi-Fi Troubleshooting", "sortOrder": 40 },
+    { "intentId": "vpn", "parentId": "connectivity", "intentName": "VPN Configuration", "sortOrder": 41 },
+    { "intentId": "resetRouter", "parentId": "connectivity", "intentName": "Router Reset Steps", "sortOrder": 42 },
+    { "intentId": "outage", "parentId": "connectivity", "intentName": "Service Outage Check", "sortOrder": 43 },
+    { "intentId": "downgrade", "parentId": "billing", "intentName": "Plan Downgrade", "sortOrder": 15 },
+    { "intentId": "upgrade", "parentId": "billing", "intentName": "Plan Upgrade", "sortOrder": 16 },
+    { "intentId": "transfer", "parentId": "billing", "intentName": "Transfer Billing", "sortOrder": 17 },
+    { "intentId": "escalate", "parentId": null, "intentName": "Escalate to Agent", "sortOrder": 99 }
+  ],
+  "actions": [
+    { "actionId": "a1", "intentId": "root", "type": "menu", "payload": "{\"followUpIntent\":\"billing\",\"nohIntent\":\"tech\"}" },
+    { "actionId": "a2", "intentId": "root", "type": "menu", "payload": "{\"followUpIntent\":\"account\"}" },
+    { "actionId": "a26", "intentId": "root", "type": "menu", "payload": "{\"redirectIntent\":\"escalate\"}" },
+
+    { "actionId": "a3", "intentId": "billing", "type": "menu", "payload": "{\"dtmfType\":\"SINGLE_DIGIT\",\"dtmfOptions\":[{\"dtmfPattern\":\"1\",\"dtmfIntent\":\"invoice\"},{\"dtmfPattern\":\"2\",\"dtmfIntent\":\"payment\"},{\"dtmfPattern\":\"3\",\"dtmfIntent\":\"refund\"},{\"dtmfPattern\":\"4\",\"dtmfIntent\":\"overcharge\"},{\"dtmfPattern\":\"5\",\"dtmfIntent\":\"lateFee\"},{\"dtmfPattern\":\"6\",\"dtmfIntent\":\"downgrade\"},{\"dtmfPattern\":\"7\",\"dtmfIntent\":\"upgrade\"},{\"dtmfPattern\":\"8\",\"dtmfIntent\":\"transfer\"}]}" },
+    { "actionId": "a4", "intentId": "billing", "type": "noh", "payload": "{\"nohIntent\":\"escalate\",\"redirectIntent\":\"root\"}" },
+
+    { "actionId": "a5", "intentId": "tech", "type": "menu", "payload": "{\"dtmfType\":\"SINGLE_DIGIT\",\"dtmfOptions\":[{\"dtmfPattern\":\"1\",\"dtmfIntent\":\"connectivity\"},{\"dtmfPattern\":\"2\",\"dtmfIntent\":\"software\"},{\"dtmfPattern\":\"3\",\"dtmfIntent\":\"hardware\"}]}" },
+    { "actionId": "a6", "intentId": "tech", "type": "noh", "payload": "{\"nohIntent\":\"escalate\"}" },
+
+    { "actionId": "a7", "intentId": "account", "type": "menu", "payload": "{\"dtmfType\":\"SINGLE_DIGIT\",\"dtmfOptions\":[{\"dtmfPattern\":\"1\",\"dtmfIntent\":\"password\"},{\"dtmfPattern\":\"2\",\"dtmfIntent\":\"profile\"},{\"dtmfPattern\":\"3\",\"dtmfIntent\":\"security\"},{\"dtmfPattern\":\"4\",\"dtmfIntent\":\"closeAccount\"}]}" },
+    { "actionId": "a8", "intentId": "account", "type": "noh", "payload": "{\"nohIntent\":\"root\"}" },
+
+    { "actionId": "a9", "intentId": "connectivity", "type": "menu", "payload": "{\"dtmfType\":\"SINGLE_DIGIT\",\"dtmfOptions\":[{\"dtmfPattern\":\"1\",\"dtmfIntent\":\"wifi\"},{\"dtmfPattern\":\"2\",\"dtmfIntent\":\"vpn\"},{\"dtmfPattern\":\"3\",\"dtmfIntent\":\"resetRouter\"},{\"dtmfPattern\":\"4\",\"dtmfIntent\":\"outage\"}]}" },
+    { "actionId": "a10", "intentId": "connectivity", "type": "noh", "payload": "{\"nohIntent\":\"tech\",\"followUpIntent\":\"escalate\"}" },
+
+    { "actionId": "a11", "intentId": "wifi", "type": "process", "payload": "{\"args\":\"successIntentId: 'tech'\",\"redirectIntent\":\"escalate\"}" },
+    { "actionId": "a12", "intentId": "vpn", "type": "process", "payload": "{\"args\":\"failureIntentId: 'tech'\",\"redirectIntent\":\"escalate\"}" },
+
+    { "actionId": "a13", "intentId": "password", "type": "process", "payload": "{\"redirectIntent\":\"account\"}" },
+    { "actionId": "a14", "intentId": "profile", "type": "process", "payload": "{\"redirectIntent\":\"account\"}" },
+    { "actionId": "a15", "intentId": "security", "type": "process", "payload": "{\"redirectIntent\":\"account\"}" },
+    { "actionId": "a16", "intentId": "closeAccount", "type": "process", "payload": "{\"redirectIntent\":\"account\"}" },
+
+    { "actionId": "a17", "intentId": "invoice", "type": "process", "payload": "{\"redirectIntent\":\"billing\"}" },
+    { "actionId": "a18", "intentId": "payment", "type": "process", "payload": "{\"followUpIntent\":\"billing\"}" },
+    { "actionId": "a19", "intentId": "refund", "type": "process", "payload": "{\"followUpIntent\":\"billing\"}" },
+    { "actionId": "a20", "intentId": "overcharge", "type": "process", "payload": "{\"followUpIntent\":\"billing\"}" },
+    { "actionId": "a21", "intentId": "lateFee", "type": "process", "payload": "{\"followUpIntent\":\"billing\"}" },
+    { "actionId": "a22", "intentId": "downgrade", "type": "process", "payload": "{\"followUpIntent\":\"billing\"}" },
+    { "actionId": "a23", "intentId": "upgrade", "type": "process", "payload": "{\"followUpIntent\":\"billing\"}" },
+    { "actionId": "a24", "intentId": "transfer", "type": "process", "payload": "{\"followUpIntent\":\"billing\"}" },
+
+    { "actionId": "a25", "intentId": "software", "type": "process", "payload": "{\"redirectIntent\":\"tech\"}" },
+    { "actionId": "a27", "intentId": "hardware", "type": "process", "payload": "{\"redirectIntent\":\"tech\"}" },
+    { "actionId": "a28", "intentId": "resetRouter", "type": "process", "payload": "{\"redirectIntent\":\"tech\"}" },
+    { "actionId": "a29", "intentId": "outage", "type": "process", "payload": "{\"redirectIntent\":\"tech\"}" }
+  ]
+}
